@@ -1,0 +1,11 @@
+{
+  "openPanel": "打开 QuickAdd 面板",
+  "manage": "动作管理",
+  "newAction": "新建动作",
+  "editAction": "编辑动作",
+  "save": "保存",
+  "cancel": "取消",
+  "delete": "删除",
+  "empty": "还没有动作",
+  "run": "执行"
+}

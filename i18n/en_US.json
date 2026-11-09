@@ -1,0 +1,11 @@
+{
+  "openPanel": "Open QuickAdd panel",
+  "manage": "Manage actions",
+  "newAction": "New action",
+  "editAction": "Edit action",
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "empty": "No actions yet",
+  "run": "Run"
+}
