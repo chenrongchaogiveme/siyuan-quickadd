@@ -34,7 +34,10 @@ const {
     executeCapture,
     executeMultiSelection,
     rememberActionDocument,
+    prepareTemplateFolderChoice,
+    resolveTemplateLocation,
     resolveTargetDoc,
+    runActionWithContext,
     typeBodyHtml,
     normalizeAction,
     QuickAddUI,
@@ -151,6 +154,120 @@ test("template editor only exposes inline Markdown and template files", () => {
     assert.doesNotMatch(html, /以某篇文档为模板/);
     assert.doesNotMatch(html, /value="doc"/);
     assert.doesNotMatch(html, /qa-pick-doc/);
+});
+
+test("template editor exposes runtime location with default notebook and path", () => {
+    const html = typeBodyHtml({
+        type: "template",
+        template: {
+            location: "runtime",
+            notebook: "",
+            folder: "/阅读",
+            title: "标题",
+            source: "inline",
+            content: "",
+            file: "",
+        },
+    }, [], []);
+
+    assert.match(html, /value="runtime" selected/);
+    assert.match(html, /每次执行时选择位置（可跨笔记本）/);
+    assert.match(html, /data-field="template.notebook"/);
+    assert.match(html, /data-field="template.folder"/);
+    assert.doesNotMatch(html, /data-field="template.chooseFolder"/);
+});
+
+test("runtime template stores the location chosen at execution time", async () => {
+    const originalPickLocation = QuickAddUI.pickLocation;
+    QuickAddUI.pickLocation = async (options) => {
+        assert.equal(options.notebook, "current-notebook");
+        assert.equal(options.basePath, "/默认位置");
+        return {notebook: "other-notebook", folder: "/阅读"};
+    };
+    try {
+        const ctx = {notebookId: "current-notebook", vars: {}};
+        const ready = await prepareTemplateFolderChoice({
+            id: "runtime-template",
+            name: "运行时模板",
+            type: "template",
+            template: {
+                location: "runtime",
+                notebook: "",
+                folder: "/默认位置",
+            },
+        }, ctx);
+
+        assert.equal(ready, true);
+        assert.deepEqual(ctx.templateFolderChoices["runtime-template"], {
+            notebook: "other-notebook",
+            folder: "/阅读",
+        });
+    } finally {
+        QuickAddUI.pickLocation = originalPickLocation;
+    }
+});
+
+test("runtime template cancellation stops the action", async () => {
+    const originalPickLocation = QuickAddUI.pickLocation;
+    QuickAddUI.pickLocation = async () => null;
+    try {
+        await assert.rejects(
+            runActionWithContext({
+                id: "runtime-cancel",
+                name: "取消位置",
+                type: "template",
+                enabled: true,
+                template: {
+                    location: "runtime",
+                    notebook: "",
+                    folder: "/",
+                },
+            }, {notebookId: "current-notebook", vars: {}}),
+            (error) => error && error.cancelled === true,
+        );
+    } finally {
+        QuickAddUI.pickLocation = originalPickLocation;
+    }
+});
+
+test("runtime template resolves the selected notebook and folder", async () => {
+    const target = await resolveTemplateLocation(
+        {location: "runtime"},
+        {templateFolderChoices: {runtime: {notebook: "reading", folder: "/书摘"}}},
+        {id: "runtime"},
+    );
+
+    assert.deepEqual(target, {
+        notebook: "reading",
+        folder: "/书摘",
+        label: "运行时选择",
+    });
+});
+
+test("fixed notebook templates defer folder inputs to the shared input step", async () => {
+    const originalAskInputs = QuickAddUI.askInputs;
+    QuickAddUI.askInputs = async () => {
+        throw new Error("不应提前询问父路径");
+    };
+    try {
+        const ctx = {notebookId: "current-notebook", vars: {}};
+        const ready = await prepareTemplateFolderChoice({
+            id: "fixed-template",
+            name: "固定位置",
+            type: "template",
+            template: {
+                location: "notebook",
+                notebook: "",
+                folder: "/{{input:路径}}",
+                chooseFolder: false,
+            },
+        }, ctx);
+
+        assert.equal(ready, true);
+        assert.deepEqual(ctx.vars, {});
+    } finally {
+        QuickAddUI.askInputs = originalAskInputs;
+    }
 });
 
 test("multi actions are presented as action selectors", () => {

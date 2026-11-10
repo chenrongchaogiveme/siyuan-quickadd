@@ -2,7 +2,7 @@
   "name": "siyuan-quickadd",
   "author": "chen",
   "url": "https://github.com/chenrongchaogiveme/siyuan-quickadd",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "3.8.0",
   "backends": [
     "all"

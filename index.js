@@ -48,6 +48,7 @@ const {
     rememberActionDocument,
     normalizeTags,
     prepareTemplateFolderChoice,
+    resolveTemplateLocation,
 } = pluginRequire("./src/actions");
 const {
     configureUI,
@@ -322,6 +323,7 @@ module.exports.__test = {
     resolveFolderChoicePath,
     listDocPathsUnder,
     prepareTemplateFolderChoice,
+    resolveTemplateLocation,
     QuickAddUI,
     defaultSettings,
 };

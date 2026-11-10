@@ -124,7 +124,11 @@ function parentFolderOf(hpath) {
 
 async function prepareTemplateFolderChoice(action, ctx) {
     const tpl = action.template || defaultActionTemplate();
-    if ((tpl.location || "notebook") !== "notebook" || !tpl.chooseFolder) {
+    const location = tpl.location || "notebook";
+    if (location !== "notebook" && location !== "runtime") {
+        return true;
+    }
+    if (location === "notebook" && !tpl.chooseFolder) {
         return true;
     }
     const folderInputs = collectInputs(tpl.folder, []);
@@ -135,8 +139,21 @@ async function prepareTemplateFolderChoice(action, ctx) {
         }
         ctx.vars = Object.assign({}, ctx.vars || {}, folderVars);
     }
-    const notebook = tpl.notebook || await pickNotebookId(ctx);
     const basePath = tpl.folder ? renderVars(tpl.folder, ctx) : "/";
+    if (location === "runtime") {
+        const pickedLocation = await ui.pickLocation({
+            notebook: tpl.notebook || ctx.notebookId || "",
+            basePath: basePath,
+            title: "选择保存位置",
+        });
+        if (pickedLocation == null) {
+            return false;
+        }
+        ctx.templateFolderChoices = ctx.templateFolderChoices || {};
+        ctx.templateFolderChoices[action.id] = pickedLocation;
+        return true;
+    }
+    const notebook = tpl.notebook || await pickNotebookId(ctx);
     const picked = await ui.pickFolder({
         notebook: notebook,
         basePath: basePath,
@@ -173,6 +190,25 @@ async function resolveTemplateLocation(tpl, ctx, action) {
     const pickedChoice = action && ctx.templateFolderChoices && ctx.templateFolderChoices[action.id];
     if (pickedChoice) {
         return {notebook: pickedChoice.notebook, folder: pickedChoice.folder, label: "运行时选择"};
+    }
+    if (location === "runtime") {
+        const notebook = tpl.notebook || ctx.notebookId || "";
+        const folder = tpl.folder ? renderVars(tpl.folder, ctx) : "/";
+        const pickedLocation = await ui.pickLocation({
+            notebook: notebook,
+            basePath: folder,
+            title: "选择保存位置",
+        });
+        if (pickedLocation == null) {
+            const error = new Error("已取消选择位置");
+            error.cancelled = true;
+            throw error;
+        }
+        return {
+            notebook: pickedLocation.notebook,
+            folder: pickedLocation.folder,
+            label: "运行时选择",
+        };
     }
     const notebook = tpl.notebook || await pickNotebookId(ctx);
     const folder = tpl.folder ? renderVars(tpl.folder, ctx) : "/";

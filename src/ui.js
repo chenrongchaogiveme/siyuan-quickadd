@@ -314,6 +314,180 @@ QuickAddUI.pickFolder = async function(options) {
     });
 };
 
+QuickAddUI.pickLocation = async function(options) {
+    const opts = options || {};
+    const notebooks = await listNotebooks().catch(() => []);
+    if (!notebooks.length) {
+        toast("没有可用的笔记本", "error");
+        return null;
+    }
+    const preferredNotebook = String(opts.notebook || "");
+    let notebookId = notebooks.some((item) => item.id === preferredNotebook)
+        ? preferredNotebook
+        : notebooks[0].id;
+    let notebook = notebooks.find((item) => item.id === notebookId);
+    let notebookName = notebook ? notebook.name : "";
+    const defaultPath = joinHPath(opts.basePath || "/");
+    let paths = await listDocPathsUnder(notebookId, "/").catch(() => ["/"]);
+    let loadVersion = 0;
+    const notebookOptions = notebooks.map((item) => `<option value="${escapeAttr(item.id)}"${item.id === notebookId ? " selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+    return new Promise((resolve) => {
+        let settled = false;
+        let activeIndex = 0;
+        let visibleOptions = [];
+        let pathError = "";
+        let loading = false;
+        const dialog = new Dialog({
+            title: opts.title || "选择保存位置",
+            width: "760px",
+            height: "600px",
+            content: `<div class="b3-dialog__content qa-dialog qa-location-picker">
+  <div class="qa-location-notebook-row">
+    <span class="qa-location-label">笔记本</span>
+    <select class="b3-select fn__flex-1 qa-location-notebook">${notebookOptions}</select>
+  </div>
+  <div class="qa-location-base">默认位置：<code class="qa-location-base-path"></code></div>
+  <input class="b3-text-field fn__block qa-location-input" placeholder="选择已有路径，或输入新的路径…" autocomplete="off" spellcheck="false">
+  <div class="qa-hint qa-location-hint">按笔记本搜索或新建路径；输入新路径会在保存到该路径时自动创建层级。↑↓ 选择，Enter 确认，Esc 取消。</div>
+  <div class="qa-pick-list qa-location-list"></div>
+</div>`,
+            destroyCallback: () => {
+                if (!settled) {
+                    settled = true;
+                    resolve(null);
+                }
+            },
+        });
+        const notebookSelect = dialog.element.querySelector(".qa-location-notebook");
+        const basePathElement = dialog.element.querySelector(".qa-location-base-path");
+        const input = dialog.element.querySelector(".qa-location-input");
+        const list = dialog.element.querySelector(".qa-location-list");
+        const allPaths = () => {
+            return paths.includes(defaultPath) ? paths : [defaultPath].concat(paths);
+        };
+        const choose = (path) => {
+            if (settled || loading) {
+                return;
+            }
+            settled = true;
+            resolve({notebook: notebookId, folder: joinHPath(path)});
+            dialog.destroy();
+        };
+        const buildOptions = () => {
+            const raw = input.value.trim();
+            const lowered = raw.toLocaleLowerCase();
+            pathError = "";
+            let customPath = "";
+            if (raw) {
+                try {
+                    customPath = resolveFolderChoicePath("/", raw, notebookName);
+                } catch (e) {
+                    pathError = e.message || "路径无效";
+                }
+            }
+            const existing = allPaths().filter((path) => {
+                if (!lowered) {
+                    return true;
+                }
+                const label = displayNotebookPath(notebookName, path).toLocaleLowerCase();
+                return path.toLocaleLowerCase().includes(lowered) || label.includes(lowered);
+            });
+            const result = [];
+            if (customPath && !existing.includes(customPath)) {
+                result.push({kind: "new", path: customPath});
+            }
+            existing.forEach((path) => result.push({kind: "existing", path: path}));
+            return result;
+        };
+        const render = () => {
+            basePathElement.textContent = displayNotebookPath(notebookName, defaultPath);
+            visibleOptions = buildOptions();
+            activeIndex = Math.max(0, Math.min(activeIndex, visibleOptions.length - 1));
+            if (loading) {
+                list.innerHTML = `<div class="qa-empty">正在读取路径…</div>`;
+                return;
+            }
+            if (!visibleOptions.length) {
+                list.innerHTML = `<div class="qa-empty">${escapeHtml(pathError || "没有匹配的路径")}</div>`;
+                return;
+            }
+            list.innerHTML = visibleOptions.map((option, index) => {
+                const isNew = option.kind === "new";
+                const label = displayNotebookPath(notebookName, option.path);
+                const meta = isNew
+                    ? "Enter 创建"
+                    : (option.path === defaultPath ? "默认位置" : "已有路径");
+                return `<div class="qa-pick-item qa-folder-item qa-location-item${index === activeIndex ? " qa-pick-item--active" : ""}${isNew ? " qa-folder-item--new" : ""}" data-index="${index}">
+    <span class="qa-folder-item__mark">${isNew ? "＋" : "▸"}</span>
+    <span class="qa-pick-item__name">${escapeHtml(isNew ? "新建：" + label : label)}</span>
+    <span class="qa-pick-item__meta">${meta}</span>
+</div>`;
+            }).join("");
+            list.querySelectorAll(".qa-location-item").forEach((row) => {
+                row.addEventListener("click", () => choose(visibleOptions[Number(row.getAttribute("data-index"))].path));
+            });
+            const active = list.querySelector(".qa-pick-item--active");
+            if (active) {
+                active.scrollIntoView({block: "nearest"});
+            }
+        };
+        const refreshPaths = async () => {
+            const version = ++loadVersion;
+            loading = true;
+            render();
+            const nextPaths = await listDocPathsUnder(notebookId, "/").catch(() => ["/"]);
+            if (settled || version !== loadVersion) {
+                return;
+            }
+            paths = nextPaths;
+            loading = false;
+            activeIndex = 0;
+            render();
+            input.focus();
+        };
+        notebookSelect.addEventListener("change", () => {
+            notebookId = notebookSelect.value;
+            notebook = notebooks.find((item) => item.id === notebookId);
+            notebookName = notebook ? notebook.name : "";
+            input.value = "";
+            void refreshPaths();
+        });
+        input.addEventListener("input", () => {
+            activeIndex = 0;
+            render();
+        });
+        input.addEventListener("keydown", (event) => {
+            if (event.isComposing || event.keyCode === 229) {
+                return;
+            }
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                if (visibleOptions.length) {
+                    activeIndex = (activeIndex + 1) % visibleOptions.length;
+                    render();
+                }
+            } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                if (visibleOptions.length) {
+                    activeIndex = (activeIndex - 1 + visibleOptions.length) % visibleOptions.length;
+                    render();
+                }
+            } else if (event.key === "Enter") {
+                event.preventDefault();
+                if (loading) {
+                    return;
+                }
+                const option = visibleOptions[activeIndex];
+                if (option) {
+                    choose(option.path);
+                }
+            }
+        });
+        render();
+        setTimeout(() => input.focus(), 30);
+    });
+};
+
 QuickAddUI.pickDoc = function(options) {
     const opts = options || {};
     return new Promise((resolve) => {
@@ -354,7 +528,7 @@ QuickAddUI.pickDoc = function(options) {
                     list.innerHTML = `<div class="qa-empty">没有找到匹配的文档</div>`;
                     return;
                 }
-                list.innerHTML = rows.map((row) => `<div class="qa-pick-item" data-id="${escapeAttr(row.id)}" data-hpath="${escapeAttr(row.hpath || "")}">
+                list.innerHTML = rows.map((row) => `<div class="qa-pick-item" data-id="${escapeAttr(row.id)}" data-hpath="${escapeAttr(row.hpath || "")}" data-box="${escapeAttr(row.box || "")}">
     <svg class="qa-svg"><use xlink:href="#iconFile"></use></svg>
     <span class="qa-pick-item__name">${escapeHtml(row.content || row.id)}</span>
     <span class="qa-pick-item__meta">${escapeHtml(row.hpath || "")}</span>
@@ -366,6 +540,7 @@ QuickAddUI.pickDoc = function(options) {
                             id: row.getAttribute("data-id"),
                             hpath: row.getAttribute("data-hpath") || "",
                             content: row.querySelector(".qa-pick-item__name").textContent,
+                            notebook: row.getAttribute("data-box") || "",
                         });
                         dialog.destroy();
                     });
@@ -728,6 +903,7 @@ QuickAddUI.typeBodyHtml = function(draft, notebooks, templateFiles) {
             {value: "current-folder", label: "当前文档所在目录（同级）"},
             {value: "current-doc", label: "作为当前文档的子文档"},
             {value: "current-notebook", label: "当前笔记本根目录"},
+            {value: "runtime", label: "每次执行时选择位置（可跨笔记本）"},
         ];
         const location = tpl.location || "notebook";
         const locationHint = {
@@ -735,11 +911,20 @@ QuickAddUI.typeBodyHtml = function(draft, notebooks, templateFiles) {
             "current-folder": "新文档和当前文档同级，笔记本自动跟随当前文档。",
             "current-doc": "新文档成为当前文档的子文档，笔记本自动跟随当前文档。",
             "current-notebook": "新文档放在当前笔记本的根目录。",
+            runtime: "执行时先选择笔记本，再选择或输入保存路径；下方是选择器的默认值，不会限制切换。",
         }[location] || "";
         let locHtml = QuickAddUI.field("位置", selectHtml("template.location", location, locationOptions), escapeHtml(locationHint));
+        if (location === "notebook" || location === "runtime") {
+            const notebookHint = location === "runtime"
+                ? "选择器的默认笔记本；为空时使用当前文档所在笔记本"
+                : "为空时使用当前文档所在笔记本";
+            const folderHint = location === "runtime"
+                ? "选择器的默认保存位置；执行时可以选择其他路径，支持 <code>{{date}}</code> 等变量"
+                : "点击「选择」浏览该笔记本里的文档；也可直接输入，支持 <code>{{date}}</code> 等变量";
+            locHtml += QuickAddUI.field(location === "runtime" ? "默认笔记本" : "笔记本", `<select class="b3-select fn__block" data-field="template.notebook">${QuickAddUI.notebookOptions(notebooks, tpl.notebook)}</select>`, notebookHint);
+            locHtml += QuickAddUI.field(location === "runtime" ? "默认父路径" : "父路径", `<div class="fn__flex"><input class="b3-text-field fn__flex-1" data-field="template.folder" value="${escapeAttr(tpl.folder || "")}" placeholder="如 /技能学习/编程"><span class="fn__space"></span><button class="b3-button b3-button--outline qa-pick-folder">选择</button></div>`, folderHint);
+        }
         if (location === "notebook") {
-            locHtml += QuickAddUI.field("笔记本", `<select class="b3-select fn__block" data-field="template.notebook">${QuickAddUI.notebookOptions(notebooks, tpl.notebook)}</select>`, "为空时使用当前文档所在笔记本");
-            locHtml += QuickAddUI.field("父路径", `<div class="fn__flex"><input class="b3-text-field fn__flex-1" data-field="template.folder" value="${escapeAttr(tpl.folder || "")}" placeholder="如 /技能学习/编程"><span class="fn__space"></span><button class="b3-button b3-button--outline qa-pick-folder">选择</button></div>`, "点击「选择」浏览该笔记本里的文档；也可直接输入，支持 <code>{{date}}</code> 等变量");
             locHtml += checkboxHtml("template.chooseFolder", tpl.chooseFolder === true, "执行时先选择子路径（列出父路径下的现有层级，也可输入新路径），再填写标题等变量");
         }
         let sourceHtml = "";
@@ -864,6 +1049,9 @@ QuickAddUI.openEditor = async function(action, options) {
                 const doc = await QuickAddUI.pickDoc({title: "选择父文档", notebook: draft.template.notebook});
                 if (doc) {
                     draft.template.folder = doc.hpath || "/";
+                    if (draft.template.location === "runtime" && doc.notebook) {
+                        draft.template.notebook = doc.notebook;
+                    }
                     renderBody();
                 }
             });
