@@ -753,7 +753,7 @@ QuickAddUI.typeBodyHtml = function(draft, notebooks, templateFiles) {
                 .map((item) => `<option value="${escapeAttr(item.value)}"${String(item.value) === String(current) ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
             sourceHtml = QuickAddUI.field("模板文件", `<div class="fn__flex"><select class="b3-select fn__flex-1" data-field="template.file">${optionHtml}</select><span class="fn__space"></span><button class="b3-button b3-button--outline qa-refresh-templates">刷新</button><span class="fn__space"></span><button class="b3-button b3-button--outline qa-open-templates">打开目录</button></div>`, "来自 <code>data/templates</code>，支持思源模板语法（<code>.action{…}</code>、<code>{{.title}}</code>、<code>{{now | date &quot;2006-01-02&quot;}}</code>）");
         } else {
-            sourceHtml = QuickAddUI.field("模板内容", textareaHtml("template.content", tpl.content, "# {{input:标题}}\\n\\n创建于 {{datetime}}", 8), "支持 Markdown 与变量");
+            sourceHtml = QuickAddUI.field("模板内容", textareaHtml("template.content", tpl.content, "输入 Markdown 模板内容（可留空）", 8), "支持 Markdown；变量可按需添加、编辑或删除");
         }
         return locHtml
             + QuickAddUI.field("标题", inputHtml("template.title", tpl.title, "{{date:YYYY-MM-DD}} {{input:标题}}"), "支持变量；同名文档按下方规则处理")

@@ -109,15 +109,6 @@ class QuickAddPlugin extends Plugin {
         this.setupHotkeys();
         this.setupSetting();
         console.log("[quickadd] loaded", this.settings.actions.length, "actions");
-        try {
-            await this.saveData("last-load.json", {
-                at: new Date().toISOString(),
-                actions: this.settings.actions.length,
-                commands: this.commands.length,
-                slash: this.protyleSlash.length,
-                topBar: this.topBarIcons.length,
-            });
-        } catch (e) { /* ignore */ }
     }
 
     onunload() {
